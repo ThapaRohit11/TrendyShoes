@@ -160,4 +160,52 @@ export async function logoutAll(req, res, next) {
   } catch (error) { next(error) }
 }
 
+export async function forgotPassword(req, res, next) {
+  const genericMessage = 'If an account exists for that email, a reset link has been sent.'
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase()
+    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(200).json({ message: genericMessage })
+    const user = await User.findOne({ email, active: true }).select('+passwordResetVersion')
+    if (user) {
+      const token = jwt.sign(
+        { sub: user.id, purpose: 'password-reset', resetVersion: user.passwordResetVersion || 0 },
+        config.jwtSecret,
+        { expiresIn: '15m', issuer: 'trendyshoes-api', audience: 'trendyshoes-password-reset' },
+      )
+      const resetUrl = `${config.clientUrl}/admin/reset-password?token=${encodeURIComponent(token)}`
+      try {
+        await sendPasswordResetEmail(user.email, resetUrl)
+        await logActivity(req, 'PASSWORD_RESET_REQUESTED', {}, user._id)
+      } catch (emailError) {
+        console.error('Password reset email failed:', emailError.message)
+        await logActivity(req, 'PASSWORD_RESET_EMAIL_FAILED', {}, user._id)
+      }
+    }
+    res.json({ message: genericMessage })
+  } catch (error) { next(error) }
+}
 
+export async function resetPassword(req, res, next) {
+  try {
+    const token = String(req.body.token || '')
+    const password = String(req.body.password || '')
+    if (!passwordPattern.test(password)) return res.status(400).json({ message: 'Password must be at least 6 characters with uppercase and lowercase letters' })
+    let payload
+    try {
+      payload = jwt.verify(token, config.jwtSecret, { issuer: 'trendyshoes-api', audience: 'trendyshoes-password-reset' })
+    } catch {
+      return res.status(400).json({ message: 'This password reset link is invalid or has expired' })
+    }
+    if (payload.purpose !== 'password-reset') return res.status(400).json({ message: 'This password reset link is invalid or has expired' })
+    const user = await User.findById(payload.sub).select('+passwordHash +passwordResetVersion +sessionVersion')
+    if (!user || !user.active || payload.resetVersion !== (user.passwordResetVersion || 0)) return res.status(400).json({ message: 'This password reset link is invalid or has expired' })
+    user.passwordHash = await bcrypt.hash(password, 12)
+    user.passwordResetVersion = (user.passwordResetVersion || 0) + 1
+    user.sessionVersion = (user.sessionVersion || 0) + 1
+    await user.save()
+    await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() })
+    res.clearCookie('auth_token', { ...cookieOptions, maxAge: undefined })
+    await logActivity(req, 'PASSWORD_RESET_COMPLETED', {}, user._id)
+    res.json({ message: 'Password reset successfully. You can now log in.' })
+  } catch (error) { next(error) }
+}
