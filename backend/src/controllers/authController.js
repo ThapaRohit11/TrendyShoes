@@ -134,4 +134,30 @@ export async function verifyTwoFactor(req, res, next) {
   } catch (error) { next(error) }
 }
 
+export async function listSessions(req, res, next) {
+  try {
+    const sessions = await Session.find({ user: req.user.id, revokedAt: null, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 }).lean()
+    res.json({ sessions: sessions.map((session) => ({ id: session._id.toString(), ip: session.ip, userAgent: session.userAgent, createdAt: session.createdAt, expiresAt: session.expiresAt, current: session.tokenId === req.session.tokenId })) })
+  } catch (error) { next(error) }
+}
+
+export async function revokeSession(req, res, next) {
+  try {
+    const session = await Session.findOneAndUpdate({ _id: req.params.id, user: req.user.id, revokedAt: null }, { revokedAt: new Date() })
+    if (!session) return res.status(404).json({ message: 'Session not found' })
+    if (session.tokenId === req.session.tokenId) res.clearCookie('auth_token', { ...cookieOptions, maxAge: undefined })
+    await logActivity(req, 'SESSION_REVOKED', { sessionId: session.id })
+    res.json({ message: 'Session revoked successfully' })
+  } catch (error) { next(error) }
+}
+
+export async function logoutAll(req, res, next) {
+  try {
+    await Session.updateMany({ user: req.user.id, revokedAt: null }, { revokedAt: new Date() })
+    res.clearCookie('auth_token', { ...cookieOptions, maxAge: undefined })
+    await logActivity(req, 'ALL_SESSIONS_REVOKED')
+    res.json({ message: 'All sessions logged out successfully' })
+  } catch (error) { next(error) }
+}
+
 
