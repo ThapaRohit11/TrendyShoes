@@ -84,6 +84,15 @@ export async function login(req, res, next) {
   } catch (error) { next(error) }
 }
 
+export async function logout(req, res) {
+  await Session.updateOne({ tokenId: req.session.tokenId }, { revokedAt: new Date() })
+  await logActivity(req, 'USER_LOGGED_OUT')
+  res.clearCookie('auth_token', { ...cookieOptions, maxAge: undefined })
+  res.json({ message: 'Logged out successfully' })
+}
+
+export function me(req, res) { res.json({ user: req.user }) }
+
 export async function verifyTwoFactor(req, res, next) {
   try {
     const code = String(req.body.code || '').trim()
