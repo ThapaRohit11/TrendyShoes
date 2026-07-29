@@ -93,6 +93,47 @@ export async function logout(req, res) {
 
 export function me(req, res) { res.json({ user: req.user }) }
 
+export async function updateProfile(req, res, next) {
+  try {
+    const name = String(req.body.name || '').trim()
+    const email = String(req.body.email || '').trim().toLowerCase()
+    if (name.length < 2 || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ message: 'A valid name and email are required' })
+
+    const currentUserId = req.user.id
+    const existingUser = await User.findOne({ email, _id: { $ne: currentUserId } }).lean()
+    if (existingUser) return res.status(409).json({ message: 'An account with that email already exists' })
+
+    const user = await User.findById(currentUserId).select('+sessionVersion')
+    if (!user || !user.active) return res.status(401).json({ message: 'Account is unavailable' })
+
+    user.name = name
+    user.email = email
+    await user.save()
+
+    const updatedUser = { id: user._id.toString(), name: user.name, email: user.email, role: user.role }
+    req.user = updatedUser
+    res.json({ user: updatedUser })
+  } catch (error) { next(error) }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const currentPassword = String(req.body.currentPassword || '')
+    const newPassword = String(req.body.newPassword || '')
+    if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current password and new password are required' })
+    if (!passwordPattern.test(newPassword)) return res.status(400).json({ message: 'Password must be at least 6 characters with uppercase and lowercase letters' })
+
+    const user = await User.findById(req.user.id).select('+passwordHash +sessionVersion')
+    if (!user || !user.active) return res.status(401).json({ message: 'Account is unavailable' })
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) return res.status(401).json({ message: 'Current password is incorrect' })
+
+    user.passwordHash = await bcrypt.hash(newPassword, 12)
+    await user.save()
+    await logActivity(req, 'PASSWORD_CHANGED', {}, user._id)
+    res.json({ message: 'Password updated successfully' })
+  } catch (error) { next(error) }
+}
+
 export async function verifyTwoFactor(req, res, next) {
   try {
     const code = String(req.body.code || '').trim()
@@ -172,7 +213,7 @@ export async function forgotPassword(req, res, next) {
         config.jwtSecret,
         { expiresIn: '15m', issuer: 'trendyshoes-api', audience: 'trendyshoes-password-reset' },
       )
-      const resetUrl = `${config.clientUrl}/admin/reset-password?token=${encodeURIComponent(token)}`
+      const resetUrl = `${config.clientUrl}/reset-password?token=${encodeURIComponent(token)}`
       try {
         await sendPasswordResetEmail(user.email, resetUrl)
         await logActivity(req, 'PASSWORD_RESET_REQUESTED', {}, user._id)
