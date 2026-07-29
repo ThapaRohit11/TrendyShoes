@@ -43,7 +43,7 @@ export default function Dashboard() {
       await load()
     } catch (err) { setError(err.message) }
   }
-  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); setUser(null); navigate('/admin/login') }
+  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); setUser(null); navigate('/login') }
 
   return <main className="min-h-screen bg-slate-100 p-4 md:p-8">
     <div className="mx-auto max-w-7xl space-y-8">
