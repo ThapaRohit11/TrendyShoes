@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, jsonOptions } from '../../api'
+import { useAuth } from '../../AuthContext'
 
 const initialForm = { customerName: '', email: '', phone: '', address: '', productId: '', quantity: 1 }
 
@@ -11,6 +12,16 @@ export default function BuyForm() {
   const [success, setSuccess] = useState(null)
   const [busy, setBusy] = useState(false)
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+
+  useEffect(() => {
+    if (!user) return
+    setForm((current) => ({
+      ...current,
+      customerName: user.name || '',
+      email: user.email || '',
+    }))
+  }, [user])
 
   useEffect(() => {
     api('/products').then(({ products: items }) => {
@@ -32,6 +43,9 @@ export default function BuyForm() {
     finally { setBusy(false) }
   }
 
+  if (!user) return <main className="min-h-[calc(100vh-88px)] bg-slate-100 px-4 py-12"><div className="mx-auto max-w-xl rounded-2xl bg-white p-8 text-center shadow"><h1 className="text-3xl font-bold">Log in to place an order</h1><p className="mt-3 text-slate-600">Orders are linked securely to your account so only you can view them.</p><Link to="/login" className="mt-6 inline-block rounded-lg bg-red-500 px-6 py-3 font-bold text-white">Log in</Link></div></main>
+  if (user.role !== 'user') return <main className="min-h-[calc(100vh-88px)] grid place-items-center bg-slate-100"><p className="text-xl">Customer ordering is available to user accounts.</p></main>
+
   return <main className="min-h-[calc(100vh-88px)] bg-slate-100 px-4 py-12">
     <div className="mx-auto grid max-w-5xl overflow-hidden rounded-3xl bg-white shadow-xl md:grid-cols-2">
       <section className="bg-black p-8 text-white md:p-12">
@@ -50,8 +64,8 @@ export default function BuyForm() {
         {success && <div className="rounded-lg bg-green-50 p-4 text-green-800"><b>Order placed successfully.</b><p>Order #{success.id.slice(0, 8)} · Total ${Number(success.total).toFixed(2)}</p></div>}
         <label className="block">Shoe<select required className="admin-input" value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value, quantity: 1 })}><option value="">Select a shoe</option>{products.map((product) => <option key={product.id} value={product.id} disabled={product.stock < 1}>{product.name} — ${Number(product.price).toFixed(2)} {product.stock < 1 ? '(out of stock)' : ''}</option>)}</select></label>
         <label className="block">Quantity<input required type="number" min="1" max={Math.min(selectedProduct?.stock || 25, 25)} className="admin-input" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })}/></label>
-        <label className="block">Full name<input required minLength="2" className="admin-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })}/></label>
-        <label className="block">Email<input required type="email" className="admin-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}/></label>
+        <label className="block">Full name<input readOnly className="admin-input bg-slate-100" value={form.customerName}/></label>
+        <label className="block">Email<input readOnly type="email" className="admin-input bg-slate-100" value={form.email}/></label>
         <label className="block">Phone<input required minLength="7" className="admin-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}/></label>
         <label className="block">Delivery address<textarea required minLength="5" className="admin-input min-h-24" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })}/></label>
         <button disabled={busy || !selectedProduct || selectedProduct.stock < 1} className="w-full rounded-lg bg-red-500 px-4 py-3 font-bold text-white hover:bg-black disabled:opacity-50">{busy ? 'Placing order…' : 'Place order'}</button>
